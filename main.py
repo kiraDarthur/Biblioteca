@@ -1,5 +1,7 @@
 import csv
 from datetime import datetime, timedelta
+import auth
+import os
 
 
 class Livro:
@@ -14,88 +16,112 @@ class Livro:
         self.prazo_dias = 14
 
 
-class Usuario:
-    def __init__(self, nome, id_usuario):
-        self.nome = nome
-        self.id_usuario = id_usuario
-        self.emprestimos = []
-
-
 acervo = []
-usuario_logado = Usuario("João", "001")
 
 
 def carregar_livros():
-    try:
-        with open('acervo.csv', mode='r', encoding='utf-8') as f:
-            leitor = csv.reader(f)
-            next(leitor)  # Pula o cabeçalho
-            for linha in leitor:
-                if len(linha) < 7: continue
-                acervo.append(Livro(linha[0], linha[1], linha[2], linha[3], linha[4], linha[5], linha[6]))
-    except Exception as e:
-        print(f"Erro ao carregar CSV: {e}")
+    acervo.clear()
+    with open('acervo.csv', mode='r', encoding='utf-8') as f:
+        leitor = csv.reader(f)
+        next(leitor)
+        for linha in leitor:
+            acervo.append(Livro(*linha))
 
 
-def selecionar_livro_por_busca():
+def salvar_acervo():
+    with open('acervo.csv', mode='w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['ISBN', 'Titulo', 'Autor', 'Ano', 'Categoria', 'Total', 'Disponiveis'])
+        for l in acervo:
+            writer.writerow([l.isbn, l.titulo, l.autor, l.ano, l.categoria, l.total, l.disponiveis])
+
+
+def salvar_emprestimo(usuario, livro, data_pegou, data_dev):
+    with open('emprestimos.txt', 'a', encoding='utf-8') as f:
+        f.write(f"{usuario},{livro.titulo},{data_pegou},{data_dev}\n")
+
+
+def carregar_meus_livros(usuario):
+    meus_livros = []
+    if os.path.exists('emprestimos.txt'):
+        with open('emprestimos.txt', 'r', encoding='utf-8') as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha: continue  # Pula linhas vazias
+                dados = linha.split(',')
+                # Verifica se a linha tem exatamente as 4 informações esperadas
+                if len(dados) == 4 and dados[0] == usuario:
+                    meus_livros.append(f"Livro: {dados[1]} | Pegou: {dados[2]} | Devolver: {dados[3]}")
+                elif len(dados) < 4:
+                    print(f"Aviso: Linha corrompida ignorada: {linha}")
+    return meus_livros
+
+
+def menu_biblioteca(nome_usuario):
     while True:
-        print("\n--- FILTROS DE BUSCA ---")
-        print("1. Título \n 2. Autor \n 3. Ano \n 4. Categoria \n 0. Voltar")
-        tipo = input("Escolha o filtro: ")
-        if tipo == '0': return None
-
-        termo = input("Digite o termo de busca: ").lower()
-
-        if tipo == '1':
-            resultados = [l for l in acervo if termo in l.titulo.lower()]
-        elif tipo == '2':
-            resultados = [l for l in acervo if termo in l.autor.lower()]
-        elif tipo == '3':
-            resultados = [l for l in acervo if termo == l.ano]
-        elif tipo == '4':
-            resultados = [l for l in acervo if termo in l.categoria.lower()]
-        else:
-            continue
-
-        if not resultados:
-            print("Nenhum livro encontrado.")
-            continue
-
-        for i, l in enumerate(resultados):
-            status = "Disponível" if l.disponiveis > 0 else "Indisponível"
-            print(f"{i + 1} - {l.titulo} | {l.autor} ({status})")
-
-        escolha = int(input("\nDigite o número (ou 0 para voltar): "))
-        if escolha == 0: continue
-        return resultados[escolha - 1]
-
-
-def menu():
-    carregar_livros()
-    while True:
-        print("\n--- MENU BIBLIOTECA ---")
-        print("1. Listar Acervo \n 2. Consultar/Reservar \n 3. Empréstimo \n 4. Sair")
+        print(f"\n--- MENU BIBLIOTECA (Logado: {nome_usuario}) ---")
+        print("1. Listar Acervo \n2. Consultar/Reservar \n3. Empréstimo \n4. Meus Livros \n0. Sair")
         opcao = input("Escolha uma opção: ")
 
-        if opcao == '1':
-            for l in acervo: print(f"{l.titulo} - Estoque: {l.disponiveis}/{l.total}")
+        # Lógica comum para buscar livros e retornar a lista encontrada
+        def buscar_livros():
+            print("\n--- FILTROS DE BUSCA ---")
+            print("1. Título \n2. Autor \n3. Ano \n4. Categoria \n0. Voltar")
+            filtro = input("Escolha o filtro: ")
+            termo = input("Digite o termo: ").lower()
+            if filtro == '1': return [l for l in acervo if termo in l.titulo.lower()]
+            if filtro == '2': return [l for l in acervo if termo in l.autor.lower()]
+            if filtro == '3': return [l for l in acervo if termo == l.ano]
+            if filtro == '4': return [l for l in acervo if termo in l.categoria.lower()]
+            return []
 
-        elif opcao in ['2', '3']:
-            livro = selecionar_livro_por_busca()
-            if livro and opcao == '2':
-                entrega = datetime.now() + timedelta(days=livro.prazo_dias)
-                print(f"Disponível: {livro.disponiveis}. Entrega sugerida: {entrega.strftime('%d/%m/%Y')}")
-            elif livro and opcao == '3':
-                if livro.disponiveis > 0 and len(usuario_logado.emprestimos) < 2:
+        if opcao == '1':
+            for l in acervo: print(f"{l.titulo} | Disp: {l.disponiveis}")
+
+        elif opcao == '2':
+            encontrados = buscar_livros()
+            for i, l in enumerate(encontrados): print(f"{i + 1} - {l.titulo} por {l.autor} ({l.disponiveis} disp.)")
+
+        elif opcao == '3':
+            encontrados = buscar_livros()
+            for i, l in enumerate(encontrados): print(f"{i + 1} - {l.titulo} por {l.autor}")
+
+            sel = int(input("Digite o número do livro: ")) - 1
+            if 0 <= sel < len(encontrados):
+                livro = encontrados[sel]
+                if livro.disponiveis > 0:
                     livro.disponiveis -= 1
-                    usuario_logado.emprestimos.append(livro)
-                    print(f"Empréstimo de '{livro.titulo}' realizado!")
+                    data_hoje = datetime.now().strftime('%d/%m/%Y')
+                    data_dev = (datetime.now() + timedelta(days=14)).strftime('%d/%m/%Y')
+                    salvar_emprestimo(nome_usuario, livro, data_hoje, data_dev)
+                    salvar_acervo()
+                    print(f"\nEmpréstimo de '{livro.titulo}' realizado!")
+                    print(f"Data: {data_hoje} | Devolução: {data_dev}")
                 else:
-                    print("Erro: Livro indisponível ou limite de 2 livros atingido.")
+                    print("Livro indisponível.")
 
         elif opcao == '4':
+            print("\n--- MEUS LIVROS EMPRESTADOS ---")
+            for item in carregar_meus_livros(nome_usuario): print(item)
+
+        elif opcao == '0':
+            break
+
+
+def sistema_inicial():
+    carregar_livros()
+    while True:
+        print("\n--- BEM-VINDO ---")
+        print("1. Login \n2. Cadastrar \n3. Sair")
+        opcao = input("Escolha: ")
+        if opcao == '1':
+            user = auth.fazer_login()
+            if user: menu_biblioteca(user)
+        elif opcao == '2':
+            auth.cadastrar_usuario()
+        elif opcao == '3':
             break
 
 
 if __name__ == "__main__":
-    menu()
+    sistema_inicial()
